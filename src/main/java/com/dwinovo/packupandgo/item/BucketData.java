@@ -100,6 +100,21 @@ public final class BucketData {
         stack.getOrCreateTag().put("packup", pack);
     }
 
+    /**
+     * 卸下桶里的家。展开成功后调用:创造模式会把数量设回使用前,只 shrink
+     * 的话 {@code packup} 还在,同一只桶可以再放一次。
+     */
+    public static void clearPack(ItemStack stack) {
+        CompoundTag tag = stack.getTag();
+        if (tag == null) {
+            return;
+        }
+        tag.remove("packup");
+        if (tag.isEmpty()) {
+            stack.setTag(null);
+        }
+    }
+
     /** 结构名:采集时装进去的(或铁砧改过的名字,展示层优先 CustomName,见 BucketItem)。 */
     public static String getPackName(ItemStack stack) {
         CompoundTag pack = getPack(stack);
