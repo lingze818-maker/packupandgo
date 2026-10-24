@@ -159,11 +159,36 @@ public class BucketItem extends Item {
         BlockPos anchor = ctx.getClickedPos().relative(ctx.getClickedFace());
         RegionRestore.Result r = RegionRestore.restore(
                 (net.minecraft.server.level.ServerLevel) ctx.getLevel(), anchor, pack);
-        stack.shrink(1);
-        feedback(player, String.format("家已放下 @ %s:写入 %d 格(方块实体 %d)——欢迎回家",
+        consumeFilledBucket(player, stack);
+        feedback(player, String.format("家已放下 @ %s:写入 %d 格(方块实体 %d)——桶已消耗,不能再放一次",
                 anchor.toShortString(), r.placedBlocks(), r.restoredBlockEntities()),
                 ChatFormatting.GREEN);
         return InteractionResult.CONSUME;
+    }
+
+    /**
+     * 展开成功后消耗这只已装载的桶。
+     *
+     * <p>生存模式 {@code shrink} 会留下:叠放时只少一只,其余还装着同一份家。
+     * 创造模式则不行——{@code ServerPlayerGameMode#useItemOn} 在使用结束后
+     * 把「调用前那只栈」的数量设回去,shrink 会被撤销,而 Forge 会把使用后的
+     * NBT 写回同一只栈。载荷还在就能无限展开。所以创造模式(以及最后一只
+     * 被 shrink 到空)要卸掉 {@code packup}:数量就算被加回,也只是空桶。
+     *
+     * <p>改的是玩家手里的那只栈本身。Forge 若取消多方块放置,会把数量和 NBT
+     * 滚回使用前——家还在桶里,块也退回,不会白丢。
+     */
+    private static void consumeFilledBucket(Player player, ItemStack stack) {
+        stack.shrink(1);
+        if (stack.isEmpty() || creativeRestoresCount(player)) {
+            BucketData.clearPack(stack);
+        }
+    }
+
+    /** 与 {@code ServerPlayerGameMode#isCreative} 同一条件:创造模式会恢复物品数量。 */
+    private static boolean creativeRestoresCount(Player player) {
+        return player instanceof net.minecraft.server.level.ServerPlayer serverPlayer
+                && serverPlayer.gameMode.isCreative();
     }
 
     private static void feedback(Player player, String text, ChatFormatting color) {
@@ -181,7 +206,8 @@ public class BucketItem extends Item {
                             BucketData.stat(stack, "blocks"),
                             BucketData.stat(stack, "block_entities")))
                     .withStyle(ChatFormatting.GRAY));
-            lines.add(Component.literal("右键地面放下这个家").withStyle(ChatFormatting.DARK_GRAY));
+            lines.add(Component.literal("右键地面放下这个家,放下后这只桶即消耗")
+                    .withStyle(ChatFormatting.DARK_GRAY));
         } else {
             lines.add(Component.literal(String.format("空桶(上限 %d³)——框选后对家右键装桶",
                             maxSize))

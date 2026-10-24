@@ -42,7 +42,7 @@ Pack Up & Go lets you capture a region of your world into a bucket item — bloc
 1. Craft a **Selection Wrench** (iron ingot + stick)
 2. **Sneak + right-click** two corners of the region you want to pack
 3. Right-click with a bucket tier that fits the size
-4. Travel to the destination, right-click the ground — **your home unfolds**
+4. Travel to the destination, right-click the ground — **your home unfolds**. That place uses up the filled bucket; the same packed home cannot be placed from it again. Empty buckets still pack as before.
 
 ## 🧪 Compatibility
 
@@ -56,6 +56,7 @@ Pack Up & Go lets you capture a region of your world into a bucket item — bloc
 
 - 框选扳手潜行右键定两角，提桶右键装桶（方块+容器内容+作物状态+驯服动物全保真）
 - 默认**复制模式**（原地保留），Shift+装桶为**移动模式**（原地清空，真·提桶跑路）
+- 已装载的桶右键展开成功后即消耗，同一桶家不能再放第二次；空桶装桶流程不变
 - 四档桶容量：木 16³ / 铁 32³ / 金 48³ / 星 64³
 - 装载状态：金/星桶泛附魔光，桶口探出小屋剪影
 
