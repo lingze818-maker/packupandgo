@@ -143,14 +143,17 @@ public class BucketItem extends Item {
         }
     }
 
-    /** 已装载的桶右键地面:放下这个家。锚点=点击面上方那格,以最小角落位。 */
+    /**
+     * 已装载的桶右键地面:放下这个家。锚点=点击面上方那格,以最小角落位。
+     * 不看来源维度。高度或世界边界放不下时拒绝,桶不消耗。
+     */
     private InteractionResult placeHome(UseOnContext ctx, Player player) {
         ItemStack stack = ctx.getItemInHand();
         net.minecraft.nbt.CompoundTag pack = BucketData.getPack(stack,
                 (net.minecraft.server.level.ServerLevel) ctx.getLevel());
         if (pack == null) {
             if (BucketData.isExternalLost()) {
-                feedback(player, "这桶家的大件数据丢失了(存档 data/packupandgo/ 被动过)——桶没消耗,数据没法救回", ChatFormatting.RED);
+                feedback(player, "这桶家的大件数据丢失了(存档 packupandgo/packs/ 被动过)——桶没消耗,数据没法救回", ChatFormatting.RED);
             } else {
                 feedback(player, "桶里的数据读不出来——再试一次,还失败就别把这桶丢进岩浆", ChatFormatting.RED);
             }
@@ -159,10 +162,18 @@ public class BucketItem extends Item {
         BlockPos anchor = ctx.getClickedPos().relative(ctx.getClickedFace());
         RegionRestore.Result r = RegionRestore.restore(
                 (net.minecraft.server.level.ServerLevel) ctx.getLevel(), anchor, pack);
+        if (r.rejected()) {
+            // 一格没写。不走 consumeFilledBucket——创造模式也不会被改成空桶。
+            feedback(player, r.rejection(), ChatFormatting.RED);
+            return InteractionResult.CONSUME;
+        }
         consumeFilledBucket(player, stack);
         feedback(player, String.format("家已放下 @ %s:写入 %d 格(方块实体 %d)——桶已消耗,不能再放一次",
                 anchor.toShortString(), r.placedBlocks(), r.restoredBlockEntities()),
                 ChatFormatting.GREEN);
+        for (String note : r.notices()) {
+            feedback(player, note, ChatFormatting.YELLOW);
+        }
         return InteractionResult.CONSUME;
     }
 
@@ -201,12 +212,17 @@ public class BucketItem extends Item {
         if (BucketData.isLoaded(stack)) {
             lines.add(Component.literal("装载: " + BucketData.getPackName(stack))
                     .withStyle(ChatFormatting.GOLD));
+            String src = BucketData.sourceDimension(stack);
+            if (!src.isEmpty()) {
+                lines.add(Component.literal("装自 " + RegionRestore.dimensionLabel(src))
+                        .withStyle(ChatFormatting.GRAY));
+            }
             lines.add(Component.literal(String.format("%s · %d 方块 · %d 方块实体",
                             BucketData.sizeString(stack),
                             BucketData.stat(stack, "blocks"),
                             BucketData.stat(stack, "block_entities")))
                     .withStyle(ChatFormatting.GRAY));
-            lines.add(Component.literal("右键地面放下这个家,放下后这只桶即消耗")
+            lines.add(Component.literal("右键地面放下这个家(可跨维度),放下后这只桶即消耗")
                     .withStyle(ChatFormatting.DARK_GRAY));
         } else {
             lines.add(Component.literal(String.format("空桶(上限 %d³)——框选后对家右键装桶",
