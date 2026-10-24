@@ -1,0 +1,14 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "packupandgo:item/golden_bucket"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "packupandgo:loaded": 1
+      },
+      "model": "packupandgo:item/golden_bucket_loaded"
+    }
+  ]
+}

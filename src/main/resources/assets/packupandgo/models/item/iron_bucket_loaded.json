@@ -1,0 +1,6 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "packupandgo:item/iron_bucket_loaded"
+  }
+}

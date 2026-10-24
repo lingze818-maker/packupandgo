@@ -1,0 +1,8 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    {"item": "minecraft:gold_ingot"},
+    {"item": "minecraft:bucket"}
+  ],
+  "result": {"item": "packupandgo:golden_bucket"}
+}

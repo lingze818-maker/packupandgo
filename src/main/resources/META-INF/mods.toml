@@ -1,0 +1,28 @@
+modLoader = "javafml"
+loaderVersion = "[47,)"
+license = "MIT"
+issueTrackerURL = ""
+
+[[mods]]
+modId = "packupandgo"
+version = "0.1.0"
+displayName = "Pack Up & Go"
+authors = "Nakexia for Lingze"
+description = '''
+提桶跑路:把家用框选装进提桶,异地原样展开——箱子内容、告示牌文字、驯服的猫猫狗狗,全保真。
+Pack up your home into a bucket and place it back down anywhere, exactly as it was.
+'''
+
+[[dependencies.packupandgo]]
+modId = "forge"
+mandatory = true
+versionRange = "[47,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.packupandgo]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[1.20.1,1.21)"
+ordering = "NONE"
+side = "BOTH"

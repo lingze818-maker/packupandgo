@@ -1,0 +1,13 @@
+# build
+build/
+.gradle/
+run/
+
+# ide
+.idea/
+*.iml
+.vscode/
+
+# os
+Thumbs.db
+.DS_Store

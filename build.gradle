@@ -1,0 +1,39 @@
+plugins {
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+}
+
+// Pack Up & Go（提桶跑路）:把家用桶装走,到哪都能原样放下。
+// Forge-only 独立 mod,不依赖 numen 引擎——本文件自包含全部构建参数,
+// 除 settings.gradle 的一行 include 外零改动根配置。
+def mcVersion = '1.20.1'
+def forgeVersion = '47.2.30'
+def modId = 'packupandgo'
+def modVersion = '0.1.0'
+def modGroup = 'com.dwinovo.packupandgo'
+
+group = modGroup
+version = modVersion
+base { archivesName = modId }
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+minecraft {
+    mappings channel: 'official', version: mcVersion
+    // v1 阶段不配 runs:验收走真游戏 mods 目录(构建 jar → 她的 PCL 实例),
+    // dev 运行配置等交互开发期(W2)再补。
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${mcVersion}-${forgeVersion}"
+}
+
+// mods.toml 不用模板占位,processResources 无需展开——值直接写死在文件里,
+// 少一道模板链条就少一处构建意外。
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+// 生产 jar 必须过 reobf:SRG 名改写(2026-10-16 崩溃案的根修——跳过这步
+// 的 jar 在真游戏里 NoSuchMethodError rarity)。reobfJar 原地改写 jar 产物。
+jar.finalizedBy('reobfJar')
