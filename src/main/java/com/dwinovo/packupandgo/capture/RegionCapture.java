@@ -89,6 +89,9 @@ public final class RegionCapture {
 
         CompoundTag root = new CompoundTag();
         root.putString("format", "packupandgo.v1");
+        // 来源维度只给提示用,展开不拿它当门禁。v1.0 的桶没有这个字段,照样能放。
+        // 格式号不升:旧客户端/旧档不认识的多余字段会被忽略,升到 v2 会把旧桶拒掉。
+        root.putString("source_dimension", level.dimension().location().toString());
         ListTag sizeTag = new ListTag();
         sizeTag.add(net.minecraft.nbt.IntTag.valueOf(max.getX() - min.getX() + 1));
         sizeTag.add(net.minecraft.nbt.IntTag.valueOf(max.getY() - min.getY() + 1));

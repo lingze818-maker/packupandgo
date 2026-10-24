@@ -13,11 +13,16 @@ import java.util.UUID;
  * 超限 pack 的磁盘持久化——「家太大 NBT 装不下」时,完整数据落世界存档目录,
  * 桶里只留一根指针(design §四 风险预登记①)。
  *
- * <p>文件位:{@code saves/<world>/data/packupandgo/pack-<id>.nbt}(gzip 压缩)。
- * 桶 NBT 里存 {@code external:true + pack_id + 摘要}——tooltip/尺寸照常直读,
- * 只有真正展开时才回磁盘取全文。
+ * <p>文件位:{@code saves/<world>/packupandgo/packs/pack-<id>.nbt}(gzip 压缩)。
+ * 这是世界根,不是 {@code data/}、也不是 {@code DIM-1}/{@code DIM1}。
+ * {@code MinecraftServer.getWorldPath(ROOT)} 在哪个维度调用都指向同一目录,
+ * 所以下界装的大件在主世界展开读得到。不要改成 {@code level.getDataStorage()}
+ * ——那个目录按维度分开,跨维度会把家读丢。
  *
- * <p>已知取舍(v1):桶被烧毁/丢弃时文件不回收(孤儿文件)。备份世界=连 data 目录
+ * <p>桶 NBT 里存 {@code external:true + pack_id + 摘要}——tooltip/尺寸照常直读,
+ * 只有真正展开时才回磁盘取全文。文件里有没有 {@code source_dimension} 都不影响读档。
+ *
+ * <p>已知取舍(v1):桶被烧毁/丢弃时文件不回收(孤儿文件)。备份世界=连 packupandgo 目录
  * 一起备份,搬档不丢家。
  */
 public final class PackStore {
@@ -28,7 +33,8 @@ public final class PackStore {
     private PackStore() {}
 
     private static Path dir(ServerLevel level) {
-        // 与 /packup 命令的 SNBT 存档同根(世界根/packupandgo/)——桶的落盘大件进 packs/ 子目录
+        // 世界根/packupandgo/packs/,与 /packup 的 SNBT 同根。走 server 的世界根,
+        // 不走当前维度的 data 目录——见类注释。
         return level.getServer().getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
                 .resolve("packupandgo").resolve("packs");
     }

@@ -94,6 +94,10 @@ public final class BucketData {
             if (size.size() >= 3) {
                 stub.put("size", size);
             }
+            // 桩也留来源维度,tooltip 不回磁盘。展开读的是全文,不靠这个字段做门禁。
+            if (pack.contains("source_dimension", Tag.TAG_STRING)) {
+                stub.putString("source_dimension", pack.getString("source_dimension"));
+            }
             stack.getOrCreateTag().put("packup", stub);
             return;
         }
@@ -113,6 +117,18 @@ public final class BucketData {
         if (tag.isEmpty()) {
             stack.setTag(null);
         }
+    }
+
+    /**
+     * 装桶时所在维度的 id(如 {@code minecraft:overworld})。v1.0 的桶没有这个字段,返回空串。
+     * 只用于 tooltip / 提示,不是展开门禁。
+     */
+    public static String sourceDimension(ItemStack stack) {
+        CompoundTag pack = getPack(stack);
+        if (pack == null || !pack.contains("source_dimension", Tag.TAG_STRING)) {
+            return "";
+        }
+        return pack.getString("source_dimension");
     }
 
     /** 结构名:采集时装进去的(或铁砧改过的名字,展示层优先 CustomName,见 BucketItem)。 */

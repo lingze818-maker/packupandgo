@@ -6,6 +6,7 @@ import com.dwinovo.packupandgo.capture.RegionRestore;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
@@ -109,6 +110,14 @@ public final class PackUpCommands {
             net.minecraft.nbt.CompoundTag root = net.minecraft.nbt.TagParser.parseTag(
                     Files.readString(file, StandardCharsets.UTF_8));
             BlockPos anchor = BlockPosArgument.getLoadedBlockPos(ctx, "anchor");
+            ServerLevel lvl = ctx.getSource().getLevel();
+
+            // 高度/边界不够就整单拒绝,先于覆盖预告——别说「将要覆盖」结果一格没写。
+            String rejection = RegionRestore.rejectionReason(lvl, anchor, root);
+            if (rejection != null) {
+                ctx.getSource().sendFailure(Component.literal("[PackUp&Go] " + rejection));
+                return 0;
+            }
 
             // 落点碰撞预告:目标区域已有多少非空格——不拦(OP 场景自己看着办),但要说
             net.minecraft.nbt.ListTag sizeTag = root.getList("size", net.minecraft.nbt.Tag.TAG_INT);
@@ -117,7 +126,6 @@ public final class PackUpCommands {
                     anchor.getY() + sizeTag.getInt(1) - 1,
                     anchor.getZ() + sizeTag.getInt(2) - 1);
             int occupied = 0;
-            ServerLevel lvl = ctx.getSource().getLevel();
             for (BlockPos p : BlockPos.betweenClosed(anchor, farCorner)) {
                 if (!lvl.getBlockState(p).isAir()) {
                     occupied++;
@@ -129,12 +137,21 @@ public final class PackUpCommands {
                         String.format("[PackUp&Go] 注意:落点区域已有 %d 格非空,展开将原样覆盖(空气格清地形)", occ)), false);
             }
 
-            RegionRestore.Result r = RegionRestore.restore(ctx.getSource().getLevel(), anchor, root);
+            RegionRestore.Result r = RegionRestore.restore(lvl, anchor, root);
+            if (r.rejected()) {
+                ctx.getSource().sendFailure(Component.literal("[PackUp&Go] " + r.rejection()));
+                return 0;
+            }
 
             ctx.getSource().sendSuccess(() -> Component.literal(
                     String.format("[PackUp&Go] 已展开 %s @ %s: 写入 %d 格(方块实体 %d,跳过 %d)",
                             name, anchor.toShortString(), r.placedBlocks(),
                             r.restoredBlockEntities(), r.skippedCells())), false);
+            for (String note : r.notices()) {
+                String line = note;
+                ctx.getSource().sendSuccess(() -> Component.literal("[PackUp&Go] " + line)
+                        .withStyle(ChatFormatting.YELLOW), false);
+            }
             PackUpAndGoMod.LOG.info("restored {} @ {}", name, anchor);
             return r.placedBlocks();
         } catch (IOException e) {
@@ -166,7 +183,7 @@ public final class PackUpCommands {
         }
     }
 
-    /** 世界目录/packupandgo/ —— W2 的桶 NBT 也落这里(超 2MB 的段落盘方案同址)。 */
+    /** 世界根/packupandgo/ —— 不按维度分目录。超限桶的大件在同根 packs/ 子目录。 */
     static Path storeDir(CommandSourceStack src) {
         return src.getLevel().getServer().getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
                 .resolve(PackUpAndGoMod.MOD_ID);
