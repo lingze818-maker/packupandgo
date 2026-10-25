@@ -6,13 +6,19 @@ import com.dwinovo.packupandgo.capture.SelectionStore;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.common.util.BlockSnapshot;
+import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
 
 import javax.annotation.Nullable;
 import java.util.List;
@@ -21,8 +27,8 @@ import java.util.List;
  * 提桶——物品本体。档位=尺寸上限(构造入参),装载状态住在 NBT(见 {@link BucketData})。
  *
  * <p>右键是它的全部语言:空桶对着框选好的家右键=装桶(采集整个区域进 NBT),
- * 已装载的桶对着地面右键=放家(原样展开)。装与放都消耗桶(设计 §五:桶是压缩
- * 空间的容器,展开即释放——防无限白嫖)。
+ * 已装载的桶对着地面右键=放家(原样展开)。装桶花掉一只空桶、换成一只装着家的桶;
+ * 展开成功再消耗这只满桶(设计 §五:防无限白嫖)。
  *
  * <p>金桶的紫流光=装载指示(拍板):空桶无光,装了家的桶亮。木桶朴素/铁桶实用
  * 不亮;星桶 10-10 灵泽拍板同样装载流光(天青渐变+白星,装了家发亮正配"海里有家")。
@@ -31,6 +37,14 @@ public class BucketItem extends Item {
 
     private final int maxSize;
     private final boolean glowWhenLoaded;
+
+    /**
+     * 叠放空桶 + 移动模式:多出来的空桶先搁在旁边。清场若被 Forge 取消放置,
+     * {@link #onMovePackReverted} 把它们收回,手里换回原来那叠。
+     */
+    @Nullable
+    private static StackedPackRollback pendingRollback;
+    private static boolean rollbackListenerRegistered;
 
     public BucketItem(Properties props, int maxSize) {
         this(props, maxSize, false);
@@ -45,6 +59,18 @@ public class BucketItem extends Item {
     /** 该桶能装下的最大边长(格)。 */
     public int maxSize() {
         return maxSize;
+    }
+
+    /**
+     * 空桶叠到物品默认上限。装了家之后上限是 1。
+     *
+     * <p>1.20.1 同物品、同一份 NBT 会并成一叠。家若写在整叠的 NBT 上,叠里每一只
+     * 都是同一份家,放下时 shrink 一只就把家复制出去。满桶与空桶 NBT 不同,
+     * 本来就不会叠在一起;满桶之间再压到 1,相同的家也不能并成一叠。
+     */
+    @Override
+    public int getMaxStackSize(ItemStack stack) {
+        return BucketData.isLoaded(stack) ? 1 : super.getMaxStackSize(stack);
     }
 
     @Override
@@ -77,6 +103,8 @@ public class BucketItem extends Item {
     /** 空桶右键:把框选好的家装进桶。 */
     private InteractionResult packHome(UseOnContext ctx, Player player) {
         ItemStack stack = ctx.getItemInHand();
+        // 上一轮若没等到放置事件(例如没清场),挂着的回滚已经过期,不能拿去撤下一轮。
+        pendingRollback = null;
         SelectionStore.Selection sel = SelectionStore.get(player.getUUID());
         if (sel == null || !sel.complete()) {
             feedback(player, "还没框选——先用扳手潜行右键定两个对角", ChatFormatting.RED);
@@ -98,17 +126,26 @@ public class BucketItem extends Item {
         String name = String.format("%d×%d×%d", sel.sizeX(), sel.sizeY(), sel.sizeZ());
         // 拍板 2:默认复制模式(原区域的家原样保留);shift=移动模式,装走后原地清空
         boolean moved = player.isShiftKeyDown();
+        // 落盘失败必须发生在改手里的桶之前。只拿着一只时家写进这只栈本身
+        // (Forge 取消多方块放置会把 NBT 滚回去);一叠时写进副本,避免整叠共用同一份家。
+        boolean single = stack.getCount() <= 1;
+        ItemStack filled = stack;
+        if (!single) {
+            filled = stack.copy();
+            filled.setCount(1);
+        }
         try {
-            BucketData.loadInto(stack, r.root(), name, moved,
+            BucketData.loadInto(filled, r.root(), name, moved,
                     (net.minecraft.server.level.ServerLevel) ctx.getLevel());
         } catch (java.io.IOException e) {
             feedback(player, "家太大,落盘失败(磁盘写入出错)——家还在原地,桶没消耗,再试一次", ChatFormatting.RED);
             return InteractionResult.CONSUME;
         }
-        stack.shrink(1);
+        StackedPackRollback parked = single ? null : separateFilledFromStack(ctx, player, stack, filled, moved);
         if (moved) {
             clearRegion((net.minecraft.server.level.ServerLevel) ctx.getLevel(), sel);
         }
+        armMoveRollback(ctx.getLevel(), parked);
         SelectionStore.clear(player.getUUID());
         com.dwinovo.packupandgo.net.PackNetwork.syncSelection(
                 (net.minecraft.server.level.ServerPlayer) player, null, null, true);
@@ -140,6 +177,104 @@ public class BucketItem extends Item {
                 net.minecraft.world.entity.TamableAnimal.class, box,
                 pet -> pet.getOwnerUUID() != null)) {
             pet.discard();
+        }
+    }
+
+    /**
+     * 手里是一叠空桶时,把装好的那一只换到手上,剩下的空桶另放。
+     *
+     * <p>不能在原来那叠上写 NBT 再 {@code shrink(1)}:NBT 整叠共用。生存模式只剩
+     * 一只时 shrink 成空气,家一起没了;多于一只时剩下的每只都带着同一份家。
+     * 创造模式还会在 {@code useOn} 返回后把数量设回调用前那只栈上(Forge 仍把
+     * 使用后的 NBT 写回同一只),所以满桶必须是另一只栈,设回去的数量碰不到它。
+     *
+     * <p>移动模式先把空桶放进单独的格子(或丢在脚下),清场若被取消再原样收回。
+     * 复制模式没有方块改动,直接并进背包。
+     *
+     * @return 移动模式下待登记的回滚;复制模式返回 null
+     */
+    @Nullable
+    private static StackedPackRollback separateFilledFromStack(UseOnContext ctx, Player player,
+                                                                ItemStack stack, ItemStack filled,
+                                                                boolean moved) {
+        ItemStack leftover = stack.copy();
+        leftover.setCount(stack.getCount() - 1);
+        player.setItemInHand(ctx.getHand(), filled);
+        if (!moved) {
+            if (!player.getInventory().add(leftover)) {
+                player.drop(leftover, false);
+            }
+            return null;
+        }
+        int slot = player.getInventory().getFreeSlot();
+        ItemEntity dropped = null;
+        if (slot >= 0) {
+            player.getInventory().setItem(slot, leftover);
+        } else {
+            slot = -1;
+            dropped = player.drop(leftover, false);
+        }
+        return new StackedPackRollback(player, ctx.getHand(), stack, slot, leftover, dropped);
+    }
+
+    /** 清场产生了方块快照时,登记回滚。放置事件若取消,空桶和手里的桶都回到装之前。 */
+    private static void armMoveRollback(Level level, @Nullable StackedPackRollback parked) {
+        if (parked == null || level.capturedBlockSnapshots.isEmpty()) {
+            return;
+        }
+        parked.snapshot = level.capturedBlockSnapshots.get(0);
+        pendingRollback = parked;
+        if (rollbackListenerRegistered) {
+            return;
+        }
+        rollbackListenerRegistered = true;
+        // 晚于启动期注册,同一优先级里排在后面;receiveCancelled 才能看见别人取消的放置。
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.LOWEST, true, BucketItem::onMovePackReverted);
+    }
+
+    /**
+     * 只处理我们刚装桶时记下的那一次清场。放下家的放置事件快照对不上,这里直接放过。
+     */
+    private static void onMovePackReverted(BlockEvent.EntityPlaceEvent event) {
+        StackedPackRollback pending = pendingRollback;
+        if (pending == null || event.getEntity() != pending.player
+                || event.getBlockSnapshot() != pending.snapshot) {
+            return;
+        }
+        pendingRollback = null;
+        if (!event.isCanceled()) {
+            return;
+        }
+        pending.player.setItemInHand(pending.hand, pending.original);
+        if (pending.leftoverSlot >= 0
+                && pending.player.getInventory().getItem(pending.leftoverSlot) == pending.leftover) {
+            pending.player.getInventory().setItem(pending.leftoverSlot, ItemStack.EMPTY);
+        }
+        if (pending.dropped != null) {
+            pending.dropped.discard();
+        }
+    }
+
+    /** 叠放装桶、移动模式的回滚记录。snapshot 在清场之后才填。 */
+    private static final class StackedPackRollback {
+        final Player player;
+        final InteractionHand hand;
+        final ItemStack original;
+        final int leftoverSlot;
+        final ItemStack leftover;
+        @Nullable
+        final ItemEntity dropped;
+        @Nullable
+        BlockSnapshot snapshot;
+
+        StackedPackRollback(Player player, InteractionHand hand, ItemStack original,
+                            int leftoverSlot, ItemStack leftover, @Nullable ItemEntity dropped) {
+            this.player = player;
+            this.hand = hand;
+            this.original = original;
+            this.leftoverSlot = leftoverSlot;
+            this.leftover = leftover;
+            this.dropped = dropped;
         }
     }
 
